@@ -8,7 +8,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>buycraftx-bukkit-pre-1.13</artifactId>
+    <artifactId>buycraftx-bukkit-post-1.13</artifactId>
     <build>
         <resources>
             <resource>
@@ -70,7 +70,7 @@
         <dependency>
             <groupId>org.bukkit</groupId>
             <artifactId>bukkit</artifactId>
-            <version>1.8-R0.1-SNAPSHOT</version>
+            <version>1.13-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
         <dependency>

@@ -4,8 +4,15 @@ import com.google.common.collect.ImmutableSet;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
 public class BukkitBuycraftPlatform extends BukkitBuycraftPlatformBase {
-    private static final ImmutableSet<Material> SIGN_MATERIALS = ImmutableSet.of(Material.SIGN_POST, Material.WALL_SIGN);
+    private static final ImmutableSet<Material> SIGN_MATERIALS = ImmutableSet.copyOf(Arrays.stream(Material.values())
+            .filter(material -> !material.name().startsWith("LEGACY_"))
+            .filter(material -> material.name().endsWith("SIGN")) // 1.14 has multiple sign variants now
+            .filter(Material::isBlock)
+            .collect(Collectors.toSet()));
 
     public BukkitBuycraftPlatform(BuycraftPluginBase plugin) {
         super(plugin);
@@ -15,15 +22,15 @@ public class BukkitBuycraftPlatform extends BukkitBuycraftPlatformBase {
     public boolean ensureCompatibleServerVersion() {
         try {
             Class.forName("org.bukkit.entity.Dolphin");
-            return false;
-        } catch (ClassNotFoundException e) {
             return true;
+        } catch (ClassNotFoundException e) {
+            return false;
         }
     }
 
     @Override
     public Material getPlayerSkullMaterial() {
-        return Material.SKULL;
+        return Material.PLAYER_HEAD;
     }
 
     @Override
@@ -33,31 +40,22 @@ public class BukkitBuycraftPlatform extends BukkitBuycraftPlatformBase {
 
     @Override
     public Material getGUIViewAllMaterial() {
-        return Material.BOOK_AND_QUILL;
+        return Material.WRITABLE_BOOK;
     }
 
     @Override
     public ItemStack createItemFromMaterialString(String materialData) {
         if (materialData == null || materialData.trim().length() <= 0) return null;
 
-        Material material;
-        short variant = 0;
+        materialData = materialData.split("\\[")[0].split(":")[0];
 
-        if (materialData.matches("^\\d+$")) {
-            material = Material.getMaterial(Integer.valueOf(materialData));
-        } else if (!materialData.contains(":")) {
-            material = Material.matchMaterial(materialData);
-        } else {
-            String[] parts = materialData.split(":");
-            if (parts[0].matches("^\\d+$")) {
-                material = Material.getMaterial(Integer.valueOf(parts[0]));
-            } else {
-                material = Material.matchMaterial(parts[0]);
-            }
-            variant = Short.valueOf(parts[1]);
+        Material material = Material.matchMaterial(materialData);
+        if (material == null) {
+            material = Material.matchMaterial(materialData, true);
         }
 
         if (material == null) return null;
-        return new ItemStack(material, 1, variant);
+        return new ItemStack(material);
     }
+
 }
