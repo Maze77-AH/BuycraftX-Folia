@@ -34,32 +34,65 @@ public abstract class BukkitBuycraftPlatformBase implements IBuycraftPlatform {
 
     @Override
     public PlaceholderManager getPlaceholderManager() {
-        return plugin.getPlaceholderManager();
+        return plugin.getPlaceholderManagerInstance();
     }
 
     @Override
     public void dispatchCommand(String command) {
+        // Synchronous command dispatch is still fine. 
         plugin.getServer().dispatchCommand(Bukkit.getConsoleSender(), command);
     }
 
+    /**
+     * Executes a Runnable immediately on a separate thread.
+     */
     @Override
     public void executeAsync(Runnable runnable) {
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, runnable);
+        // Folia: immediate async = runDelayed with 0 ms
+        Bukkit.getAsyncScheduler().runDelayed(
+            plugin,
+            scheduledTask -> runnable.run(),
+            0L,
+            java.util.concurrent.TimeUnit.MILLISECONDS
+        );
     }
 
+    /**
+     * Executes a Runnable after a delay on a separate thread.
+     */
     @Override
     public void executeAsyncLater(Runnable runnable, long time, TimeUnit unit) {
-        plugin.getServer().getScheduler().runTaskLaterAsynchronously(plugin, runnable, unit.toMillis(time) / 50);
+        // Folia: async delayed in ms
+        long delayMs = unit.toMillis(time);
+        Bukkit.getAsyncScheduler().runDelayed(
+            plugin,
+            scheduledTask -> runnable.run(),
+            delayMs,
+            java.util.concurrent.TimeUnit.MILLISECONDS
+        );
     }
 
+    /**
+     * Executes a Runnable immediately on the main (synchronous) thread.
+     */
     @Override
     public void executeBlocking(Runnable runnable) {
-        plugin.getServer().getScheduler().runTask(plugin, runnable);
+        // Folia: immediate sync = runDelayed with 0 ticks
+        Bukkit.getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> {
+            runnable.run();
+        }, 0L);
     }
 
+    /**
+     * Executes a Runnable after a delay on the main (synchronous) thread.
+     */
     @Override
     public void executeBlockingLater(Runnable runnable, long time, TimeUnit unit) {
-        Bukkit.getScheduler().runTaskLater(plugin, runnable, unit.toMillis(time) / 50);
+        // Folia synchronous tasks measure delay in ticks, so convert ms -> ticks
+        long delayTicks = unit.toMillis(time) / 50;
+        Bukkit.getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> {
+            runnable.run();
+        }, delayTicks);
     }
 
     private Player getPlayer(QueuedPlayer player) {
@@ -82,8 +115,7 @@ public abstract class BukkitBuycraftPlatformBase implements IBuycraftPlatform {
 
         ItemStack[] contents = player1.getInventory().getContents();
         if (contents.length > MAXIMUM_USABLE_INVENTORY_SIZE) {
-            // Spigot 1.9 and above merged regular inventory space with armor space. BuycraftX is only interested in
-            // inventory space.
+            // Spigot 1.9+ merges armor/inventory. We only want "real" inventory space.
             contents = Arrays.copyOfRange(contents, 0, MAXIMUM_USABLE_INVENTORY_SIZE);
         }
 

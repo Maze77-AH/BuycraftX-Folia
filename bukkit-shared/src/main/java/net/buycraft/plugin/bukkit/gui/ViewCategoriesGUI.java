@@ -8,18 +8,16 @@ import net.buycraft.plugin.data.responses.Listing;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
+import org.bukkit.event.*;
 import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.*;
+import org.bukkit.inventory.meta.ItemMeta;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.FileReader;
-import java.io.FileWriter;
+import java.io.*;
 import java.util.Objects;
+import java.util.logging.Level;
 
 import static net.buycraft.plugin.bukkit.util.GUIUtil.withName;
 
@@ -36,23 +34,19 @@ public class ViewCategoriesGUI implements Listener {
 
     public void open(Player player) {
         if (inventoryNeedsReloading()) {
-            Bukkit.getLogger().info("Inventory appears to be empty, trying to read from gui.cache file...");
-            try {
-                BufferedReader reader = new BufferedReader(new FileReader(plugin.getDataFolder() + "/gui.cache"));
+            Bukkit.getLogger().info("Inventory is empty, reading from gui.cache...");
+            try (BufferedReader reader = new BufferedReader(new FileReader(plugin.getDataFolder() + "/gui.cache"))) {
                 String jsonString = reader.readLine();
                 Listing listing = new Gson().fromJson(jsonString, Listing.class);
-                if (listing != null)
+                if (listing != null) {
                     listing.order();
-
-                inventory = Bukkit.createInventory(null, 9, GUIUtil.trimName("Tebex: " +
-                        plugin.getI18n().get("categories")));
-
+                }
+                inventory = Bukkit.createInventory(null, 9, GUIUtil.trimName("Tebex: " + plugin.getI18n().get("categories")));
                 this.createInventoryFromListing(listing);
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
-
         player.openInventory(inventory);
     }
 
@@ -75,20 +69,18 @@ public class ViewCategoriesGUI implements Listener {
         inventory.clear();
 
         if (plugin.getApiClient() == null || plugin.getServerInformation() == null) {
-            plugin.getLogger().warning("No secret key available (or no server information), so can't update inventories.");
+            plugin.getLogger().warning("No secret key or server info, can't update inventories.");
             return;
         }
 
         Listing listing = plugin.getListingUpdateTask().getListing();
         if (listing == null) {
-            plugin.getLogger().warning("No listing found, so can't update inventories.");
+            plugin.getLogger().warning("No listing found, can't update inventories.");
             return;
         }
 
-        try {
-            BufferedWriter bw = new BufferedWriter(new FileWriter(plugin.getDataFolder() + "/gui.cache"));
+        try (BufferedWriter bw = new BufferedWriter(new FileWriter(plugin.getDataFolder() + "/gui.cache"))) {
             bw.write(new Gson().toJson(listing));
-            bw.close();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -109,7 +101,6 @@ public class ViewCategoriesGUI implements Listener {
             if (stack == null) {
                 stack = new ItemStack(Material.CHEST);
             }
-
             inventory.setItem(inventory.firstEmpty(), withName(stack, ChatColor.YELLOW + category.getName()));
         }
     }
@@ -117,7 +108,6 @@ public class ViewCategoriesGUI implements Listener {
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         Inventory clickedInventory = GUIUtil.getClickedInventory(event);
-
         if (clickedInventory != null && Objects.equals(inventory, clickedInventory)) {
             event.setCancelled(true);
 
@@ -126,7 +116,6 @@ public class ViewCategoriesGUI implements Listener {
             }
 
             final Player player = (Player) event.getWhoClicked();
-
             Listing listing = plugin.getListingUpdateTask().getListing();
             if (listing == null) {
                 return;
@@ -147,7 +136,11 @@ public class ViewCategoriesGUI implements Listener {
                 return;
             }
 
-            plugin.getServer().getScheduler().runTask(plugin, () -> gui.open(player));
+            // Folia: schedule synchronous immediate
+            Bukkit.getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> {
+                gui.open(player);
+            }, 0L);
+
         } else if (event.getView().getTopInventory() == inventory) {
             event.setCancelled(true);
         }

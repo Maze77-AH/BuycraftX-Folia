@@ -3,11 +3,13 @@ package net.buycraft.plugin.bukkit.command;
 import net.buycraft.plugin.BuyCraftAPI;
 import net.buycraft.plugin.bukkit.BuycraftPluginBase;
 import net.buycraft.plugin.data.responses.ServerInformation;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.ConsoleCommandSender;
 
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 public class SecretSubcommand implements Subcommand {
@@ -29,7 +31,8 @@ public class SecretSubcommand implements Subcommand {
             return;
         }
 
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+        // Folia: schedule asynchronously with no delay
+        Bukkit.getAsyncScheduler().runDelayed(plugin, scheduledTask -> {
             String currentKey = plugin.getConfiguration().getServerKey();
             BuyCraftAPI client = BuyCraftAPI.create(args[0], plugin.getHttpClient());
             try {
@@ -59,7 +62,7 @@ public class SecretSubcommand implements Subcommand {
             }
 
             plugin.getDuePlayerFetcher().run(repeatChecks);
-        });
+        }, 0L, TimeUnit.MILLISECONDS);
     }
 
     @Override

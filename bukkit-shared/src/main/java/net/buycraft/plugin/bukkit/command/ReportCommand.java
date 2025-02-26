@@ -9,11 +9,10 @@ import org.bukkit.command.CommandSender;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.*;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.concurrent.TimeUnit;
 
 public class ReportCommand implements Subcommand {
     private final BuycraftPluginBase plugin;
@@ -26,7 +25,8 @@ public class ReportCommand implements Subcommand {
     public void execute(final CommandSender sender, String[] args) {
         sender.sendMessage(ChatColor.YELLOW + plugin.getI18n().get("report_wait"));
 
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+        // Folia: run asynchronously with no delay
+        Bukkit.getAsyncScheduler().runDelayed(plugin, scheduledTask -> {
             ReportBuilder builder = ReportBuilder.builder()
                     .client(plugin.getHttpClient())
                     .configuration(plugin.getConfiguration())
@@ -50,7 +50,7 @@ public class ReportCommand implements Subcommand {
                 sender.sendMessage(ChatColor.RED + plugin.getI18n().get("report_cant_save"));
                 plugin.getLogger().info(generated);
             }
-        });
+        }, 0L, TimeUnit.MILLISECONDS);
     }
 
     @Override

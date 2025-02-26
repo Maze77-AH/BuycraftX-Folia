@@ -2,12 +2,11 @@ package net.buycraft.plugin.bukkit.util;
 
 import com.google.common.collect.ImmutableList;
 import net.buycraft.plugin.bukkit.BuycraftPluginBase;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryView;
-import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.Objects;
@@ -26,7 +25,10 @@ public class GUIUtil {
     }
 
     public static void closeInventoryLater(final Player player) {
-        plugin.getServer().getScheduler().runTask(plugin, player::closeInventory);
+        // Folia: synchronous immediate
+        Bukkit.getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> {
+            player.closeInventory();
+        }, 0L);
     }
 
     public static void replaceInventory(Inventory oldInv, Inventory newInv) {

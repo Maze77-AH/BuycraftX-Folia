@@ -37,7 +37,8 @@ import net.buycraft.plugin.shared.util.AnalyticsSend;
 import okhttp3.OkHttpClient;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
+
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask; // Folia import
 
 import java.io.File;
 import java.io.IOException;
@@ -55,7 +56,10 @@ public abstract class BuycraftPluginBase extends JavaPlugin {
 
     private BuyCraftAPI apiClient;
     private DuePlayerFetcher duePlayerFetcher;
-    private BukkitTask duePlayerFetcherTask;
+
+    // Folia: store as ScheduledTask instead of BukkitTask
+    private ScheduledTask duePlayerFetcherTask;
+
     private ListingUpdateTask listingUpdateTask;
     private ServerInformation serverInformation;
     private CategoryViewGUI categoryViewGUI;
@@ -81,10 +85,10 @@ public abstract class BuycraftPluginBase extends JavaPlugin {
         platform = createBukkitPlatform();
 
         if (!platform.ensureCompatibleServerVersion()) {
-            throw new IllegalStateException("Wrong version of plugin used for server version. Please ensure that you downloaded the correct file.");
+            throw new IllegalStateException("Wrong plugin version for this server version. Download the correct file.");
         }
 
-        // Initialize configuration.
+        // Initialize config.
         getDataFolder().mkdir();
         Path configPath = getDataFolder().toPath().resolve("config.properties");
         try {
@@ -96,7 +100,7 @@ public abstract class BuycraftPluginBase extends JavaPlugin {
                 configuration.save(configPath);
             }
         } catch (IOException e) {
-            getLogger().log(Level.INFO, "Unable to load configuration! The plugin will disable itself now.", e);
+            getLogger().log(Level.INFO, "Unable to load configuration! Disabling plugin.", e);
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -107,19 +111,19 @@ public abstract class BuycraftPluginBase extends JavaPlugin {
         // Initialize API client.
         final String serverKey = configuration.getServerKey();
         if (serverKey == null || serverKey.equals("INVALID")) {
-            getLogger().info("Looks like this is a fresh setup. Get started by using 'tebex secret <key>' in the console.");
+            getLogger().info("Fresh setup. Use 'tebex secret <key>' in console to get started.");
         } else {
             getLogger().info("Validating your server key...");
             BuyCraftAPI client = BuyCraftAPI.create(configuration.getServerKey(), httpClient);
             try {
                 updateInformation(client);
             } catch (Exception e) {
-                getLogger().severe(String.format("We can't check if your server can connect to Tebex: %s", e.getMessage()));
+                getLogger().severe(String.format("Can't check server connectivity to Tebex: %s", e.getMessage()));
             }
             apiClient = client;
         }
 
-        // Check for latest version.
+        // Check for updates if enabled.
         if (configuration.isCheckForUpdates()) {
             VersionCheck check = new VersionCheck(this, getDescription().getVersion(), configuration.getServerKey());
             try {
@@ -127,9 +131,10 @@ public abstract class BuycraftPluginBase extends JavaPlugin {
             } catch (IOException e) {
                 getLogger().log(Level.SEVERE, "Can't check for updates", e);
             }
-            getServer().getPluginManager().registerEvents(check, this); // out!
+            getServer().getPluginManager().registerEvents(check, this);
         }
 
+        // Push commands if enabled
         if (configuration.isPushCommandsEnabled()) {
             injector = new NettyInjector() {
                 @Override
@@ -140,55 +145,97 @@ public abstract class BuycraftPluginBase extends JavaPlugin {
             ((NettyInjector) injector).inject();
         }
 
-        // Initialize placeholders.
+        // Initialize placeholders
         placeholderManager.addPlaceholder(new BukkitNamePlaceholder());
         placeholderManager.addPlaceholder(new UuidPlaceholder());
 
-        // Start the essential tasks.
-        this.duePlayerFetcherTask = getServer().getScheduler().runTaskLaterAsynchronously(this, duePlayerFetcher = new DuePlayerFetcher(platform,
-                configuration.isVerbose()), 20);
+        // Start essential tasks.
+        // Folia: runTaskLaterAsynchronously => runDelayed async with 1 second
+        duePlayerFetcher = new DuePlayerFetcher(platform, configuration.isVerbose());
+        this.duePlayerFetcherTask = Bukkit.getAsyncScheduler().runDelayed(
+            this,
+            scheduledTask -> duePlayerFetcher.run(),
+            1L, // 1 second
+            TimeUnit.SECONDS
+        );
+
         completedCommandsTask = new PostCompletedCommandsTask(platform);
 
         commandExecutor = new QueuedCommandExecutor(platform, completedCommandsTask);
         ((QueuedCommandExecutor) commandExecutor).setRunMaxCommandsBlocking(configuration.getCommandsPerTick());
 
-        getServer().getScheduler().runTaskTimer(this, (Runnable) this.commandExecutor, 1, 1);
-        getServer().getScheduler().runTaskTimerAsynchronously(this, completedCommandsTask, 20, 20);
-        playerJoinCheckTask = new PlayerJoinCheckTask(platform);
-        getServer().getScheduler().runTaskTimer(this, playerJoinCheckTask, 20, 20);
-        serverEventSenderTask = new ServerEventSenderTask(platform, configuration.isVerbose());
-        getServer().getScheduler().runTaskTimerAsynchronously(this, serverEventSenderTask, 20 * 60, 20 * 60);
+        // Synchronous repeating: 1 tick initial, 1 tick period
+        Bukkit.getGlobalRegionScheduler().runAtFixedRate(
+            this,
+            scheduledTask -> ((QueuedCommandExecutor) commandExecutor).run(),
+            1L,
+            1L
+        );
 
-        // Initialize the GUIs.
+        // Asynchronous repeating: initial=20 ticks => 1 second => 1000 ms
+        // period=20 ticks => 1 second => 1000 ms
+        Bukkit.getAsyncScheduler().runAtFixedRate(
+            this,
+            scheduledTask -> completedCommandsTask.run(),
+            1000,
+            1000,
+            TimeUnit.MILLISECONDS
+        );
+
+        playerJoinCheckTask = new PlayerJoinCheckTask(platform);
+        // Synchronous repeating: 20 tick initial, 20 tick period
+        Bukkit.getGlobalRegionScheduler().runAtFixedRate(
+            this,
+            scheduledTask -> playerJoinCheckTask.run(),
+            20L,
+            20L
+        );
+
+        serverEventSenderTask = new ServerEventSenderTask(platform, configuration.isVerbose());
+        // Asynchronous repeating: 20*60 => 1200 ticks => 60 seconds => 60000 ms
+        Bukkit.getAsyncScheduler().runAtFixedRate(
+            this,
+            scheduledTask -> serverEventSenderTask.run(),
+            60000,
+            60000,
+            TimeUnit.MILLISECONDS
+        );
+
+        // Initialize GUIs
         viewCategoriesGUI = new ViewCategoriesGUI(this);
         categoryViewGUI = new CategoryViewGUI(this);
 
-        // Update listing.
+        // listingUpdateTask
         listingUpdateTask = new ListingUpdateTask(platform, () -> {
             if (!this.isEnabled()) return;
-            Bukkit.getScheduler().runTask(this, new GUIUpdateTask(this));
-            Bukkit.getScheduler().runTask(this, new BuyNowSignUpdater(this));
+            // runTask => synchronous immediate
+            Bukkit.getGlobalRegionScheduler().runDelayed(this, s -> new GUIUpdateTask(this).run(), 0L);
+            Bukkit.getGlobalRegionScheduler().runDelayed(this, s -> new BuyNowSignUpdater(this).run(), 0L);
         });
 
         if (apiClient != null) {
             getLogger().info("Fetching all server packages...");
             try {
-                // for a first synchronous run
-                listingUpdateTask.run();
-
-                // Update GUIs too.
+                listingUpdateTask.run(); // synchronous direct call
                 viewCategoriesGUI.update();
                 categoryViewGUI.update();
             } catch (Exception e) {
                 getLogger().log(Level.SEVERE, "Unable to fetch server packages", e);
             }
         }
-        getServer().getScheduler().runTaskTimerAsynchronously(this, listingUpdateTask, 20 * 60 * 10, 20 * 60 * 10);
+        // runTaskTimerAsynchronously => 20 * 60 * 10 => 12000 ticks => 600 seconds => 600000 ms
+        Bukkit.getAsyncScheduler().runAtFixedRate(
+            this,
+            scheduledTask -> listingUpdateTask.run(),
+            600000,
+            600000,
+            TimeUnit.MILLISECONDS
+        );
 
-        // Register listener.
+        // Register listener
         getServer().getPluginManager().registerEvents(new BuycraftListener(this), this);
 
-        // Initialize and register commands.
+        // Register commands
         BuycraftCommand command = new BuycraftCommand(this);
         command.getSubcommandMap().put("forcecheck", new ForceCheckSubcommand(this));
         command.getSubcommandMap().put("secret", new SecretSubcommand(this));
@@ -200,7 +247,7 @@ public abstract class BuycraftPluginBase extends JavaPlugin {
         command.getSubcommandMap().put("sendlink", new SendLinkSubcommand(this));
         getCommand("buycraft").setExecutor(command);
 
-        // Initialize sign layouts.
+        // Load sign layouts
         try {
             Path signLayoutDirectory = getDataFolder().toPath().resolve("sign_layouts");
             try {
@@ -226,17 +273,25 @@ public abstract class BuycraftPluginBase extends JavaPlugin {
             getLogger().log(Level.SEVERE, "Unable to load sign layouts", e);
         }
 
-        // Initialize recent purchase sign data and listener.
+        // Initialize recent purchase sign data
         recentPurchaseSignStorage = new RecentPurchaseSignStorage();
         try {
             recentPurchaseSignStorage.load(getDataFolder().toPath().resolve("purchase_signs.json"));
         } catch (IOException | JsonParseException e) {
             getLogger().log(Level.WARNING, "Can't load purchase signs, continuing anyway");
         }
-        getServer().getScheduler().runTaskTimerAsynchronously(this, new RecentPurchaseSignUpdateFetcher(this), 20, 3600 * 15);
+        // runTaskTimerAsynchronously => initial=20 ticks => 1 second => 1000 ms
+        // period= 3600 * 15 => 54000 ticks => 45 minutes => 2700000 ms
+        Bukkit.getAsyncScheduler().runAtFixedRate(
+            this,
+            scheduledTask -> new RecentPurchaseSignUpdateFetcher(this).run(),
+            1000,
+            2700000,
+            TimeUnit.MILLISECONDS
+        );
         getServer().getPluginManager().registerEvents(new RecentPurchaseSignListener(this), this);
 
-        // Initialize purchase signs.
+        // Initialize purchase signs
         buyNowSignStorage = new BuyNowSignStorage();
         try {
             buyNowSignStorage.load(getDataFolder().toPath().resolve("buy_now_signs.json"));
@@ -248,34 +303,41 @@ public abstract class BuycraftPluginBase extends JavaPlugin {
 
         // Send data to Keen IO
         if (serverInformation != null) {
-            getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
-                String fullPlatformVersion = getServer().getVersion();
-                int start = fullPlatformVersion.indexOf("(MC:");
-                String pv = fullPlatformVersion.substring(start + 5, fullPlatformVersion.length() - 1);
-                try {
-                    AnalyticsSend.postServerInformation(httpClient, serverKey, platform, getServer().getOnlineMode());
-                } catch (IOException e) {
-                    getLogger().log(Level.WARNING, "Can't send analytics", e);
-                }
-            }, 0, 20 * TimeUnit.DAYS.toSeconds(1));
+            // runTaskTimerAsynchronously => initial=0, period=1 day => 86400000 ms
+            Bukkit.getAsyncScheduler().runAtFixedRate(
+                this,
+                scheduledTask -> {
+                    String fullPlatformVersion = getServer().getVersion();
+                    int start = fullPlatformVersion.indexOf("(MC:");
+                    String pv = fullPlatformVersion.substring(start + 5, fullPlatformVersion.length() - 1);
+                    try {
+                        AnalyticsSend.postServerInformation(httpClient, serverKey, platform, getServer().getOnlineMode());
+                    } catch (IOException e) {
+                        getLogger().log(Level.WARNING, "Can't send analytics", e);
+                    }
+                },
+                0,
+                86400000,
+                TimeUnit.MILLISECONDS
+            );
         }
     }
 
     @Override
     public void onDisable() {
         if (!platform.ensureCompatibleServerVersion()) return;
+
+        // Cancel tasks if needed
         try {
-            this.duePlayerFetcherTask.cancel();
-        } catch (Exception ignored) {
-        }
-        try {
-            this.duePlayerFetcherTask.cancel();
-        } catch (Exception ignored) {
-        }
+            if (duePlayerFetcherTask != null && !duePlayerFetcherTask.isCancelled()) {
+                duePlayerFetcherTask.cancel();
+            }
+        } catch (Exception ignored) {}
+
         try {
             recentPurchaseSignStorage.save(getDataFolder().toPath().resolve("purchase_signs.json"));
         } catch (IOException e) {
-            getLogger().log(Level.SEVERE, "Can't save purchase signs, continuing anyway");
+            getLogger().log(Level.SEVERE, "Can't save purchase signs, continuing anyway", e);
         }
         try {
             buyNowSignStorage.save(getDataFolder().toPath().resolve("buy_now_signs.json"));
@@ -285,6 +347,7 @@ public abstract class BuycraftPluginBase extends JavaPlugin {
         if (configuration.isPushCommandsEnabled() && injector != null) {
             ((NettyInjector) injector).close();
         }
+        // flush commands
         completedCommandsTask.flush();
     }
 
@@ -298,24 +361,21 @@ public abstract class BuycraftPluginBase extends JavaPlugin {
     public void updateInformation(BuyCraftAPI client) throws IOException {
         serverInformation = client.getServerInformation().execute().body();
         if (!configuration.isBungeeCord() && getServer().getOnlineMode() != serverInformation.getAccount().isOnlineMode()) {
-            getLogger().log(Level.WARNING, "Your server and webstore online mode settings are mismatched. Unless you are using" +
-                    " a proxy and server combination (such as BungeeCord/Spigot or LilyPad/Connect) that corrects UUIDs, then" +
-                    " you may experience issues with packages not applying.");
-            getLogger().log(Level.WARNING, "If you have verified that your set up is correct, you can suppress this message by" +
-                    " setting is-bungeecord=true in your BuycraftX config.properties.");
+            getLogger().log(Level.WARNING, "Server and webstore online-mode mismatch. If using a proxy (BungeeCord/Spigot, etc.), " +
+                    "you can ignore. Otherwise, set is-bungeecord=true in config.properties to suppress this message.");
         }
     }
 
-    public PlaceholderManager getPlaceholderManager() {
-        return this.placeholderManager;
+    public PlaceholderManager getPlaceholderManagerInstance() {
+        return placeholderManager;
     }
 
     public BuycraftConfiguration getConfiguration() {
-        return this.configuration;
+        return configuration;
     }
 
     public BuyCraftAPI getApiClient() {
-        return this.apiClient;
+        return apiClient;
     }
 
     public void setApiClient(final BuyCraftAPI apiClient) {

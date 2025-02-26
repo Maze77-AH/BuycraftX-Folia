@@ -6,8 +6,9 @@ import net.buycraft.plugin.bukkit.tasks.RecentPurchaseSignUpdateFetcher;
 import net.buycraft.plugin.bukkit.util.BukkitSerializedBlockLocation;
 import net.buycraft.plugin.shared.config.signs.storage.RecentPurchaseSignPosition;
 import net.buycraft.plugin.shared.config.signs.storage.SerializedBlockLocation;
-import org.apache.commons.lang.StringUtils;
+
 import org.bukkit.ChatColor;
+import org.apache.commons.lang3.StringUtils;
 import org.bukkit.Location;
 import org.bukkit.block.BlockFace;
 import org.bukkit.event.EventHandler;
@@ -15,8 +16,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.SignChangeEvent;
 
-import java.awt.*;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
 public class RecentPurchaseSignListener implements Listener {
     private final BuycraftPluginBase plugin;
@@ -34,10 +35,12 @@ public class RecentPurchaseSignListener implements Listener {
             return;
         }
         if (!ourSign) return;
+
         if (!event.getPlayer().hasPermission("buycraft.admin")) {
             event.getPlayer().sendMessage(ChatColor.RED + "You can't create Buycraft signs.");
             return;
         }
+
         int pos;
         try {
             pos = Integer.parseInt(StringUtils.trimToEmpty(event.getLine(1)));
@@ -47,7 +50,7 @@ public class RecentPurchaseSignListener implements Listener {
         }
 
         if (pos <= 0) {
-            event.getPlayer().sendMessage(ChatColor.RED + "The second line can not be negative or zero.");
+            event.getPlayer().sendMessage(ChatColor.RED + "The second line cannot be negative or zero.");
             return;
         }
 
@@ -56,15 +59,24 @@ public class RecentPurchaseSignListener implements Listener {
             return;
         }
 
-        plugin.getRecentPurchaseSignStorage().addSign(new RecentPurchaseSignPosition(BukkitSerializedBlockLocation.create(
-                event.getBlock().getLocation()), pos));
+        plugin.getRecentPurchaseSignStorage().addSign(
+            new RecentPurchaseSignPosition(
+                BukkitSerializedBlockLocation.create(event.getBlock().getLocation()), pos
+            )
+        );
         event.getPlayer().sendMessage(ChatColor.GREEN + "Added new recent purchase sign!");
 
         for (int i = 0; i < 4; i++) {
             event.setLine(i, "");
         }
 
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, new RecentPurchaseSignUpdateFetcher(plugin));
+        // Folia: run asynchronously with no delay
+        plugin.getServer().getAsyncScheduler().runDelayed(
+            plugin,
+            scheduledTask -> new RecentPurchaseSignUpdateFetcher(plugin).run(),
+            0L,
+            TimeUnit.MILLISECONDS
+        );
     }
 
     @EventHandler

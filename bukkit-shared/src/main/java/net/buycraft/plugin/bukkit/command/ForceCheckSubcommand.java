@@ -1,8 +1,11 @@
 package net.buycraft.plugin.bukkit.command;
 
 import net.buycraft.plugin.bukkit.BuycraftPluginBase;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
+
+import java.util.concurrent.TimeUnit;
 
 public class ForceCheckSubcommand implements Subcommand {
     private final BuycraftPluginBase plugin;
@@ -28,7 +31,14 @@ public class ForceCheckSubcommand implements Subcommand {
             return;
         }
 
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> plugin.getDuePlayerFetcher().run(false));
+        // Folia: schedule asynchronously with 0 ms delay
+        Bukkit.getAsyncScheduler().runDelayed(
+            plugin,
+            scheduledTask -> plugin.getDuePlayerFetcher().run(false),
+            0L,
+            TimeUnit.MILLISECONDS
+        );
+
         sender.sendMessage(ChatColor.GREEN + plugin.getI18n().get("forcecheck_queued"));
     }
 

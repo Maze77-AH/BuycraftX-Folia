@@ -3,11 +3,10 @@ package net.buycraft.plugin.bukkit.tasks;
 import net.buycraft.plugin.bukkit.BuycraftPluginBase;
 import net.buycraft.plugin.data.RecentPayment;
 import net.buycraft.plugin.shared.config.signs.storage.RecentPurchaseSignPosition;
+import org.bukkit.Bukkit;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.logging.Level;
 
 public class RecentPurchaseSignUpdateFetcher implements Runnable {
@@ -54,6 +53,9 @@ public class RecentPurchaseSignUpdateFetcher implements Runnable {
             }
         }
 
-        plugin.getServer().getScheduler().runTask(plugin, new RecentPurchaseSignUpdateApplication(plugin, signToPurchases));
+        // Folia: run synchronous immediate
+        Bukkit.getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> {
+            new RecentPurchaseSignUpdateApplication(plugin, signToPurchases).run();
+        }, 0L);
     }
 }

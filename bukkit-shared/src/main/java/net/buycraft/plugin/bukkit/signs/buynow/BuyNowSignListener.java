@@ -15,20 +15,16 @@ import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.Action;
-import org.bukkit.event.block.BlockBreakEvent;
-import org.bukkit.event.block.SignChangeEvent;
+import org.bukkit.event.block.*;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 public class BuyNowSignListener implements Listener {
-    private static final long COOLDOWN_MS = 250; // 5 ticks
+    private static final long COOLDOWN_MS = 250; // 5 ticks in ms
     private final Map<UUID, SerializedBlockLocation> settingUpSigns = new HashMap<>();
     private final BuycraftPluginBase plugin;
     private final Map<UUID, Long> signCooldowns = new HashMap<>();
@@ -55,7 +51,6 @@ public class BuyNowSignListener implements Listener {
             event.setLine(i, "");
         }
 
-
         settingUpSigns.put(event.getPlayer().getUniqueId(), BukkitSerializedBlockLocation.create(event.getBlock().getLocation()));
         event.getPlayer().sendMessage(ChatColor.GREEN + "Navigate to the item you want to set this sign for.");
         plugin.getViewCategoriesGUI().open(event.getPlayer());
@@ -66,17 +61,23 @@ public class BuyNowSignListener implements Listener {
         if (event.getAction() == Action.RIGHT_CLICK_BLOCK && event.getClickedBlock() != null) {
             Block b = event.getClickedBlock();
             if (!(plugin.getPlatform().getSignMaterials().contains(b.getType()))) return;
-            SerializedBlockLocation sbl = BukkitSerializedBlockLocation.create(event.getClickedBlock().getLocation());
+            SerializedBlockLocation sbl = BukkitSerializedBlockLocation.create(b.getLocation());
             for (SavedBuyNowSign s : plugin.getBuyNowSignStorage().getSigns()) {
                 if (s.getLocation().equals(sbl)) {
-                    // Signs are rate limited (per player) in order to limit API calls issued.
+                    // Sign rate limit
                     Long ts = signCooldowns.get(event.getPlayer().getUniqueId());
                     long now = System.currentTimeMillis();
                     if (ts == null || ts + COOLDOWN_MS <= now) {
                         signCooldowns.put(event.getPlayer().getUniqueId(), now);
-                        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, new SendCheckoutLink(plugin, s.getPackageId(), event.getPlayer()));
-                    }
 
+                        // Folia: run async immediately
+                        plugin.getServer().getAsyncScheduler().runDelayed(
+                            plugin,
+                            scheduledTask -> new SendCheckoutLink(plugin, s.getPackageId(), event.getPlayer()).run(),
+                            0L,
+                            TimeUnit.MILLISECONDS
+                        );
+                    }
                     return;
                 }
             }
@@ -85,13 +86,18 @@ public class BuyNowSignListener implements Listener {
 
     @EventHandler
     public void onInventoryClose(final InventoryCloseEvent event) {
-        if (settingUpSigns.containsKey(event.getPlayer().getUniqueId())) {
-            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                if ((event.getPlayer().getOpenInventory().getTopInventory() == null || !event.getView().getTitle().startsWith("Tebex: ")) && settingUpSigns.remove(event.getPlayer().getUniqueId()) != null && event.getPlayer() instanceof Player) {
-                    event.getPlayer().sendMessage(ChatColor.RED + "Buy sign set up cancelled.");
-                }
-            }, 3);
+        if (!settingUpSigns.containsKey(event.getPlayer().getUniqueId())) {
+            return;
         }
+        // Folia: run sync delayed (3 ticks)
+        plugin.getServer().getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> {
+            if ((event.getPlayer().getOpenInventory().getTopInventory() == null
+                    || !event.getView().getTitle().startsWith("Tebex: "))
+                && settingUpSigns.remove(event.getPlayer().getUniqueId()) != null
+                && event.getPlayer() instanceof Player) {
+                event.getPlayer().sendMessage(ChatColor.RED + "Buy sign set up cancelled.");
+            }
+        }, 3L);
     }
 
     @EventHandler
@@ -140,7 +146,9 @@ public class BuyNowSignListener implements Listener {
         Block b = BukkitSerializedBlockLocation.toBukkit(sbl).getBlock();
         if (!(plugin.getPlatform().getSignMaterials().contains(b.getType()))) return;
         plugin.getBuyNowSignStorage().addSign(new SavedBuyNowSign(sbl, p.getId()));
-        plugin.getServer().getScheduler().runTask(plugin, new BuyNowSignUpdater(plugin));
+
+        // Folia: run sync immediate
+        plugin.getServer().getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> new BuyNowSignUpdater(plugin).run(), 0L);
     }
 
     public Map<UUID, SerializedBlockLocation> getSettingUpSigns() {

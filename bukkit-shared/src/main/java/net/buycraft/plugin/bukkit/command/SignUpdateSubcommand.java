@@ -2,8 +2,11 @@ package net.buycraft.plugin.bukkit.command;
 
 import net.buycraft.plugin.bukkit.BuycraftPluginBase;
 import net.buycraft.plugin.bukkit.tasks.RecentPurchaseSignUpdateFetcher;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
+
+import java.util.concurrent.TimeUnit;
 
 public class SignUpdateSubcommand implements Subcommand {
     private final BuycraftPluginBase plugin;
@@ -29,7 +32,14 @@ public class SignUpdateSubcommand implements Subcommand {
             return;
         }
 
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, new RecentPurchaseSignUpdateFetcher(plugin));
+        // Folia: run asynchronously with zero ms delay
+        Bukkit.getAsyncScheduler().runDelayed(
+            plugin,
+            scheduledTask -> new RecentPurchaseSignUpdateFetcher(plugin).run(),
+            0L,
+            TimeUnit.MILLISECONDS
+        );
+
         sender.sendMessage(ChatColor.GREEN + plugin.getI18n().get("sign_update_queued"));
     }
 

@@ -14,16 +14,15 @@ import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.HandlerList;
-import org.bukkit.event.Listener;
+import org.bukkit.event.*;
 import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.text.NumberFormat;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
 
 import static net.buycraft.plugin.bukkit.util.GUIUtil.withName;
 
@@ -49,13 +48,13 @@ public class CategoryViewGUI {
 
     public void update() {
         if (plugin.getApiClient() == null || plugin.getServerInformation() == null) {
-            plugin.getLogger().warning("No secret key available (or no server information), so can't update inventories.");
+            plugin.getLogger().warning("No secret key or server info available, can't update inventories.");
             return;
         }
 
         Listing listing = plugin.getListingUpdateTask().getListing();
         if (listing == null) {
-            plugin.getLogger().warning("No listing found, so can't update inventories.");
+            plugin.getLogger().warning("No listing found, can't update inventories.");
             return;
         }
 
@@ -137,24 +136,22 @@ public class CategoryViewGUI {
         private Category category;
 
         public GUIImpl(Integer parentId, int page, Category category) {
-            this.inventory = Bukkit.createInventory(null, calculateSize(category, page), GUIUtil.trimName("Tebex: " + category.getName()));
+            this.inventory = Bukkit.createInventory(null, calculateSize(category, page),
+                GUIUtil.trimName("Tebex: " + category.getName()));
             this.parentId = parentId;
             this.page = page;
             update(category);
         }
 
         private int calculateSize(Category category, int page) {
-            // TODO: Calculate this amount based on no of packages
-            int needed = 45; // bottom row
+            // A rough approach: 45 for bottom row, plus maybe 9 if subcategories
+            int needed = 45;
             if (!category.getSubcategories().isEmpty()) {
                 int pagesWithSubcats = (int) Math.ceil(category.getSubcategories().size() / 9D);
                 if (pagesWithSubcats >= page) {
-                    // more pages exist
                     needed += 9;
                 }
             }
-
-            // if we show subcategories, we can't show as many pages
             return needed;
         }
 
@@ -190,7 +187,7 @@ public class CategoryViewGUI {
                     for (int i = 0; i < subcats.size(); i++) {
                         Category subcat = subcats.get(i);
 
-                        ItemStack stack = plugin.getPlatform().createItemFromMaterialString(subcats.get(i).getGuiItem());
+                        ItemStack stack = plugin.getPlatform().createItemFromMaterialString(subcat.getGuiItem());
                         if (stack == null) {
                             stack = new ItemStack(Material.CHEST);
                         }
@@ -199,7 +196,7 @@ public class CategoryViewGUI {
                     }
                 }
             } else {
-                subcatPartition = ImmutableList.of();
+                subcatPartition = Collections.emptyList();
             }
 
             List<List<Package>> packagePartition = Lists.partition(category.getPackages(), 36);
@@ -220,15 +217,12 @@ public class CategoryViewGUI {
                     meta.setDisplayName(ChatColor.GREEN + p.getName());
 
                     List<String> lore = new ArrayList<>();
-                    // Price
                     NumberFormat format = NumberFormat.getCurrencyInstance(Locale.US);
                     format.setCurrency(Currency.getInstance(plugin.getServerInformation().getAccount().getCurrency().getIso4217()));
 
                     String price = ChatColor.GRAY +
-                            plugin.getI18n().get("price") +
-                            ": " +
-                            ChatColor.DARK_GREEN +
-                            ChatColor.BOLD +
+                            plugin.getI18n().get("price") + ": " +
+                            ChatColor.DARK_GREEN + ChatColor.BOLD +
                             format.format(p.getEffectivePrice());
                     lore.add(price);
 
@@ -237,28 +231,27 @@ public class CategoryViewGUI {
                     }
 
                     meta.setLore(lore);
-
                     stack.setItemMeta(meta);
                     inventory.setItem(base + i, stack);
                 }
             }
 
-            // Determine if we should draw a previous or next button
             int bottomBase = base + 36;
             if (page > 0) {
-                // Definitely draw a previous button
-                inventory.setItem(bottomBase + 1, withName(new ItemStack(Material.NETHER_STAR), ChatColor.AQUA + plugin.getI18n().get("previous_page")));
+                inventory.setItem(bottomBase + 1, withName(new ItemStack(Material.NETHER_STAR),
+                        ChatColor.AQUA + plugin.getI18n().get("previous_page")));
             }
-
             if (subcatPartition.size() - 1 > page || packagePartition.size() - 1 > page) {
-                // Definitely draw a next button
-                inventory.setItem(bottomBase + 7, withName(new ItemStack(Material.NETHER_STAR), ChatColor.AQUA + plugin.getI18n().get("next_page")));
+                inventory.setItem(bottomBase + 7, withName(new ItemStack(Material.NETHER_STAR),
+                        ChatColor.AQUA + plugin.getI18n().get("next_page")));
             }
 
-            // Draw a parent or "view all categories" button
+            // parent/back or "view all categories"
             ItemStack parent = new ItemStack(plugin.getPlatform().getGUIViewAllMaterial());
             ItemMeta meta = parent.getItemMeta();
-            meta.setDisplayName(ChatColor.GRAY + (parentId == null ? plugin.getI18n().get("view_all_categories") : plugin.getI18n().get("back_to_parent")));
+            meta.setDisplayName(ChatColor.GRAY + (parentId == null ?
+                    plugin.getI18n().get("view_all_categories") :
+                    plugin.getI18n().get("back_to_parent")));
             parent.setItemMeta(meta);
             inventory.setItem(bottomBase + 4, parent);
         }
@@ -266,7 +259,6 @@ public class CategoryViewGUI {
         @EventHandler
         public void onInventoryClick(InventoryClickEvent event) {
             Inventory clickedInventory = GUIUtil.getClickedInventory(event);
-
             if (clickedInventory != null && Objects.equals(inventory, clickedInventory)) {
                 event.setCancelled(true);
 
@@ -277,46 +269,62 @@ public class CategoryViewGUI {
                 final Player player = (Player) event.getWhoClicked();
                 if (category == null) return;
                 ItemStack stack = clickedInventory.getItem(event.getSlot());
-                if (stack == null) {
-                    return;
-                }
+                if (stack == null) return;
 
                 String displayName = stack.getItemMeta().getDisplayName();
                 if (displayName.startsWith(ChatColor.YELLOW.toString())) {
-                    // Subcategory was clicked
-                    for (final Category category1 : category.getSubcategories()) {
-                        if (category1.getName().equals(ChatColor.stripColor(displayName))) {
-                            final GUIImpl gui = getFirstPage(category1);
+                    // Subcategory
+                    for (final Category subcat : category.getSubcategories()) {
+                        if (subcat.getName().equals(ChatColor.stripColor(displayName))) {
+                            final GUIImpl gui = getFirstPage(subcat);
                             if (gui == null) {
                                 player.sendMessage(ChatColor.RED + plugin.getI18n().get("nothing_in_category"));
                                 return;
                             }
-                            plugin.getServer().getScheduler().runTask(plugin, () -> gui.open(player));
+                            // Folia: run synchronous immediate
+                            Bukkit.getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> gui.open(player), 0L);
                             return;
                         }
                     }
                 } else if (displayName.startsWith(ChatColor.GREEN.toString())) {
-                    // Package was clicked
-                    for (Package aPackage : category.getPackages()) {
-                        if (aPackage.getName().equals(ChatColor.stripColor(displayName))) {
+                    // Package
+                    for (Package p : category.getPackages()) {
+                        if (p.getName().equals(ChatColor.stripColor(displayName))) {
                             GUIUtil.closeInventoryLater(player);
                             if (plugin.getBuyNowSignListener().getSettingUpSigns().containsKey(player.getUniqueId())) {
-                                plugin.getBuyNowSignListener().doSignSetup(player, aPackage);
+                                plugin.getBuyNowSignListener().doSignSetup(player, p);
                             } else {
-                                plugin.getServer().getScheduler().runTaskAsynchronously(plugin, new SendCheckoutLink(plugin, aPackage.getId(), player));
+                                // Folia: run async immediate
+                                Bukkit.getAsyncScheduler().runDelayed(
+                                    plugin,
+                                    scheduledTask -> new SendCheckoutLink(plugin, p.getId(), player).run(),
+                                    0L, TimeUnit.MILLISECONDS
+                                );
                             }
                             return;
                         }
                     }
                 } else if (displayName.equals(ChatColor.AQUA + plugin.getI18n().get("previous_page"))) {
-                    plugin.getServer().getScheduler().runTask(plugin, () -> categoryMenus.get(category.getId()).get(page - 1).open(player));
+                    // synchronous immediate
+                    Bukkit.getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> {
+                        categoryMenus.get(category.getId()).get(page - 1).open(player);
+                    }, 0L);
                 } else if (displayName.equals(ChatColor.AQUA + plugin.getI18n().get("next_page"))) {
-                    plugin.getServer().getScheduler().runTask(plugin, () -> categoryMenus.get(category.getId()).get(page + 1).open(player));
+                    // synchronous immediate
+                    Bukkit.getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> {
+                        categoryMenus.get(category.getId()).get(page + 1).open(player);
+                    }, 0L);
                 } else if (stack.getType() == plugin.getPlatform().getGUIViewAllMaterial()) {
                     if (parentId != null) {
-                        plugin.getServer().getScheduler().runTask(plugin, () -> categoryMenus.get(parentId).get(0).open(player));
+                        // synchronous immediate
+                        Bukkit.getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> {
+                            categoryMenus.get(parentId).get(0).open(player);
+                        }, 0L);
                     } else {
-                        plugin.getServer().getScheduler().runTask(plugin, () -> plugin.getViewCategoriesGUI().open(player));
+                        // synchronous immediate
+                        Bukkit.getGlobalRegionScheduler().runDelayed(plugin, scheduledTask -> {
+                            plugin.getViewCategoriesGUI().open(player);
+                        }, 0L);
                     }
                 }
             } else if (event.getView().getTopInventory() == inventory) {
