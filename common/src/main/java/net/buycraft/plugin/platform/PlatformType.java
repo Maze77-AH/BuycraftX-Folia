@@ -4,11 +4,6 @@ import java.util.Locale;
 
 public enum PlatformType {
     BUKKIT,
-    BUNGEECORD,
-    SPONGE,
-    NUKKIT,
-    FORGE,
-    VELOCITY,
     NONE;
 
     public String platformName() {
